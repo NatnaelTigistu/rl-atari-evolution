@@ -27,6 +27,18 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
+# ale_py must be imported AND registered before any gym.make("ALE/...") call.
+# gym.register_envs() is idempotent — safe to call multiple times.
+try:
+    import ale_py
+    gym.register_envs(ale_py)
+except ImportError as _ale_err:
+    raise ImportError(
+        "ale-py is required to use ALE environments.\n"
+        "Install it with:  pip install ale-py autorom[accept-rom-license]\n"
+        "Then run:         AutoROM --accept-license"
+    ) from _ale_err
+
 from config import CFG
 
 
