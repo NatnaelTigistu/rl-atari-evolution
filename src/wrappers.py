@@ -330,7 +330,7 @@ def make_atari_env(
     env = gym.wrappers.RecordEpisodeStatistics(env)
 
     # Stack 4 most recent frames; final obs shape: (4, 84, 84)
-    env = gym.wrappers.FrameStack(env, num_stack=CFG.FRAME_STACK)
+    env = gym.wrappers.FrameStackObservation(env, stack_size=CFG.FRAME_STACK)
 
     env.reset(seed=seed)
     return env
