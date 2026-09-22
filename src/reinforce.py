@@ -78,9 +78,9 @@ class REINFORCEAgent:
 
         Stores the log-probability for use in update().
 
-        Args:
-            state: Observation array with shape ``(4, 84, 84)`` or a
-                   pre-batched tensor ``(1, 4, 84, 84)``.
+        Input shapes accepted:
+            np.ndarray / torch.Tensor of shape ``(4, 84, 84)``   ← raw obs
+            torch.Tensor of shape ``(1, 4, 84, 84)``             ← pre-batched
 
         Returns:
             Discrete action integer in [0, action_dim).
@@ -90,28 +90,18 @@ class REINFORCEAgent:
                 np.asarray(state, dtype=np.float32), dtype=torch.float32
             )
 
-        # Ensure batch dimension
+        # Add batch dimension if missing.
+        # After WarpFrame+FrameStack(4): obs.shape == (4, 84, 84), ndim==3.
         if state.ndim == 3:
-            state = state.unsqueeze(0)
+            state = state.unsqueeze(0)   # (1, 4, 84, 84)
 
         state = state.to(self.device)
 
-        self.policy.eval()   # BN / Dropout off during rollout (future-proof)
-        with torch.no_grad():
-            # We still need log_prob to have a grad_fn for the update step,
-            # so we re-run inside a grad context during update(). Here we
-            # just sample the action efficiently.
-            action, _ = self.policy.get_action(state)
-
-        # Re-run WITH grad enabled to get a tracked log_prob
+        # Single forward pass under train mode so log_prob retains grad_fn.
+        # ⚠️  Do NOT wrap in torch.no_grad() here — the log_prob tensor MUST
+        #     stay on the computation graph for update() to backprop through it.
         self.policy.train()
-        action_tensor, log_prob = self.policy.get_action(state)
-        # Override with the same action we already selected (ensures consistency)
-        logits = self.policy(state)
-        from torch.distributions import Categorical
-        dist = Categorical(logits=logits)
-        action_t = torch.tensor([action], device=self.device)
-        log_prob = dist.log_prob(action_t)   # shape (1,)
+        action, log_prob = self.policy.get_action(state)  # action: int, log_prob: (1,)
 
         self._log_probs.append(log_prob)
         return action

@@ -222,8 +222,22 @@ class WarpFrame(gym.ObservationWrapper):
     """
     Convert RGB frames to 84×84 grayscale using OpenCV.
 
-    Output observation shape: (84, 84, 1)  — the channel dimension is kept
-    so that FrameStack can concatenate along axis=-1 or axis=0.
+    Output observation shape: ``(84, 84)`` — 2-D, NO trailing channel dim.
+
+    Why no channel dim?
+    -------------------
+    gymnasium's ``FrameStack`` builds the stacked observation by calling
+    ``np.array(list_of_frames)``.  If each frame is ``(H, W, 1)`` (3-D),
+    numpy stacks them on a *new* leading axis → ``(4, H, W, 1)`` (4-D).
+    PyTorch ``Conv2d`` then interprets that as::
+
+        batch=4, C=H=84, H=84, W=1   ← WRONG (84 channels instead of 4)
+
+    If each frame is ``(H, W)`` (2-D), numpy produces ``(4, H, W)`` (3-D).
+    ``select_action`` adds the batch dim → ``(1, 4, H, W)`` which is
+    exactly what ``Conv2d(in_channels=4)`` expects::
+
+        batch=1, C=4, H=84, W=84     ← CORRECT
 
     Args:
         env:    The environment to wrap.
@@ -240,10 +254,11 @@ class WarpFrame(gym.ObservationWrapper):
         super().__init__(env)
         self._width = width
         self._height = height
+        # Shape is (H, W) — 2-D, no channel dimension.
         self.observation_space = spaces.Box(
             low=0,
             high=255,
-            shape=(height, width, 1),
+            shape=(height, width),
             dtype=np.uint8,
         )
 
@@ -252,7 +267,7 @@ class WarpFrame(gym.ObservationWrapper):
         resized = cv2.resize(
             gray, (self._width, self._height), interpolation=cv2.INTER_AREA
         )
-        return resized[:, :, np.newaxis]  # (H, W, 1)
+        return resized  # (H, W) — 2-D, no channel dim
 
 
 # ---------------------------------------------------------------------------
