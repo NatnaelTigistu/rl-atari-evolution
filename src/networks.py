@@ -18,9 +18,9 @@ def _ortho_init(module: nn.Module, gain: float = math.sqrt(2)) -> nn.Module:
 
 
 class NatureCNN(nn.Module):
-    """DeepMind Nature CNN: (B, 4, 84, 84) → (B, 512)."""
+    """Shared conv backbone: (B, 4, 84, 84) → (B, 512). Used by PolicyNetwork."""
 
-    _CONV_OUT_SIZE: int = 64 * 7 * 7  # 3136 after three conv layers on 84x84 input
+    _CONV_OUT_SIZE: int = 64 * 7 * 7  # 3136
 
     def __init__(self, in_channels: int = CFG.FRAME_STACK, feature_dim: int = 512) -> None:
         super().__init__()
@@ -37,6 +37,24 @@ class NatureCNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc(self.conv(x))
+
+
+class ConvBackbone(nn.Module):
+    """Conv-only backbone: (B, 4, 84, 84) → (B, 3136). Used by ActorCriticNetwork."""
+
+    _CONV_OUT_SIZE: int = 64 * 7 * 7  # 3136
+
+    def __init__(self, in_channels: int = CFG.FRAME_STACK) -> None:
+        super().__init__()
+        self.conv = nn.Sequential(
+            _ortho_init(nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)), nn.ReLU(),
+            _ortho_init(nn.Conv2d(32, 64, kernel_size=4, stride=2)),          nn.ReLU(),
+            _ortho_init(nn.Conv2d(64, 64, kernel_size=3, stride=1)),          nn.ReLU(),
+            nn.Flatten(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.conv(x)
 
 
 class PolicyNetwork(nn.Module):
@@ -63,25 +81,40 @@ class PolicyNetwork(nn.Module):
 
 
 class ActorCriticNetwork(nn.Module):
-    """Shared CNN backbone with actor and critic heads. Used by A2C and PPO."""
+    """
+    Shared conv backbone with separate FC heads for actor and critic.
+
+    Architecture:
+        ConvBackbone → 3136
+            Actor head  : Linear(3136→512) → ReLU → Linear(512→action_dim)
+            Critic head : Linear(3136→512) → ReLU → Linear(512→1)
+    """
 
     def __init__(self, action_dim: int = 6, in_channels: int = CFG.FRAME_STACK) -> None:
         super().__init__()
-        self.cnn = NatureCNN(in_channels=in_channels)
-        self.actor_head  = _ortho_init(nn.Linear(512, action_dim), gain=0.01)
-        self.critic_head = _ortho_init(nn.Linear(512, 1), gain=1.0)
+        self.backbone = ConvBackbone(in_channels=in_channels)
+
+        self.actor_head = nn.Sequential(
+            _ortho_init(nn.Linear(3136, 512)), nn.ReLU(),
+            _ortho_init(nn.Linear(512, action_dim), gain=0.01),
+        )
+        self.critic_head = nn.Sequential(
+            _ortho_init(nn.Linear(3136, 512)), nn.ReLU(),
+            _ortho_init(nn.Linear(512, 1), gain=1.0),
+        )
 
     def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        features = self.cnn(state)
+        features = self.backbone(state)
         return self.actor_head(features), self.critic_head(features)
 
     def get_action(
         self, state: torch.Tensor
-    ) -> Tuple[int, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[int, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Returns (action, log_prob, value, entropy)."""
         logits, value = self.forward(state)
         dist = Categorical(logits=logits)
         action = dist.sample()
-        return action.item(), dist.log_prob(action), value.squeeze(-1)
+        return action.item(), dist.log_prob(action), value.squeeze(-1), dist.entropy()
 
     def evaluate_actions(
         self, state: torch.Tensor, action: torch.Tensor

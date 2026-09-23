@@ -90,13 +90,15 @@ def run_episode_reinforce(agent, env, device: str) -> tuple[float, int, float]:
 def run_episode_ac(agent, env, device: str) -> tuple[float, int, float]:
     obs, _ = env.reset()
     total_reward, ep_len, done = 0.0, 0, False
+    terminated = truncated = False
     while not done:
         obs_t = torch.tensor(
             np.asarray(obs, dtype=np.float32), dtype=torch.float32
         ).unsqueeze(0).to(device)
-        action, log_prob, value = agent.network.get_action(obs_t)
+        action, log_prob, value, entropy = agent.network.get_action(obs_t)
         next_obs, reward, terminated, truncated, _ = env.step(action)
-        agent.store_transition(obs, action, reward, terminated, truncated, log_prob, value)
+        agent.store_transition(obs, action, reward, terminated, truncated,
+                               log_prob, value, entropy)
         obs = next_obs
         total_reward += float(reward)
         ep_len += 1
