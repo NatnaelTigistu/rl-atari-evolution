@@ -22,7 +22,7 @@ from src.wrappers import make_atari_env
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train an RL agent on ALE/Pong-v5")
     parser.add_argument("--algo",         type=str, default="reinforce",
-                        choices=["reinforce", "a2c", "ppo"])
+                        choices=["reinforce", "a2c", "a2c_gae", "ppo"])
     parser.add_argument("--episodes",     type=int, default=1000)
     parser.add_argument("--save-freq",    type=int, default=50)
     parser.add_argument("--device",       type=str,
@@ -50,6 +50,10 @@ def build_agent(algo: str, action_dim: int, device: str):
     elif algo == "a2c":
         from src.a2c import A2CAgent
         return A2CAgent(action_dim=action_dim, lr=CFG.LR, gamma=CFG.GAMMA, device=device)
+    elif algo == "a2c_gae":
+        from src.a2c_gae import A2CGAEAgent
+        return A2CGAEAgent(action_dim=action_dim, lr=CFG.LR, gamma=CFG.GAMMA,
+                           lam=CFG.GAE_LAMBDA, device=device)
     elif algo == "ppo":
         from src.ppo import PPOAgent
         return PPOAgent(action_dim=action_dim, lr=CFG.LR, gamma=CFG.GAMMA, device=device)
